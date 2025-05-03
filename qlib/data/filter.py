@@ -6,6 +6,7 @@ from abc import abstractmethod
 
 import re
 import pandas as pd
+import akshare as ak
 import numpy as np
 import abc
 
@@ -369,6 +370,336 @@ class ExpressionDFilter(SeriesDFilter):
         return {
             "filter_type": "ExpressionDFilter",
             "rule_expression": self.rule_expression,
+            "filter_start_time": str(self.filter_start_time) if self.filter_start_time else self.filter_start_time,
+            "filter_end_time": str(self.filter_end_time) if self.filter_end_time else self.filter_end_time,
+            "keep": self.keep,
+        }
+
+class STAKFilter(SeriesDFilter):
+    """Non-ST dynamic instrument filter
+    
+    Filter the instruments which are not ST or *ST.
+    """
+
+    def __init__(self, fstart_time=None, fend_time=None):
+        """Initialize ST stock filter
+        
+        Parameters
+        ----------
+        fstart_time : str, optional
+            Start time for filtering, defaults to None
+        fend_time : str, optional
+            End time for filtering, defaults to None
+        """
+        super(STAKFilter, self).__init__(fstart_time, fend_time)
+
+
+    def _getSTStockCodeList(self):
+        stock_info_a_code_name_df = ak.stock_info_a_code_name()
+        st_stock_code = stock_info_a_code_name_df[
+            stock_info_a_code_name_df['name'].str.contains('ST')
+        ]['code'].tolist()
+        return st_stock_code
+
+    def _getFilterSeries(self, instruments, fstart, fend):
+        all_filter_series = {}
+        filter_calendar = Cal.calendar(start_time=fstart, end_time=fend, freq=self.filter_freq)
+        st_stock_code = self._getSTStockCodeList()
+        for inst, timestamp in instruments.items():
+            if inst[2:] in st_stock_code:
+                _filter_series = pd.Series({timestamp: False for timestamp in filter_calendar})
+            else:
+                _filter_series = pd.Series({timestamp: True for timestamp in filter_calendar})
+            all_filter_series[inst] = _filter_series
+        return all_filter_series
+
+    @staticmethod
+    def from_config(config):
+        return STAKFilter(
+            fstart_time=config["filter_start_time"],
+            fend_time=config["filter_end_time"],
+        )
+
+    def to_config(self):
+        return {
+            "filter_type": "STAKFilter",
+            "filter_start_time": str(self.filter_start_time) if self.filter_start_time else self.filter_start_time,
+            "filter_end_time": str(self.filter_end_time) if self.filter_end_time else self.filter_end_time,
+        }
+
+class NewStockAKFilter(SeriesDFilter):
+    """Filter for newly listed stocks
+    
+    Filter stocks by comparing their listing date with the filter time range
+    """
+    
+    def __init__(self, days_threshold=30, fstart_time=None, fend_time=None, keep=False):
+        """Initialize new stock filter
+        
+        Parameters
+        ----------
+        days_threshold : int
+            Stocks listed within this number of days are considered new
+        fstart_time : str
+            Filter start time 
+        fend_time : str
+            Filter end time
+        keep : bool
+            Whether to keep stocks with missing data
+        """
+        super(NewStockAKFilter, self).__init__(fstart_time, fend_time)
+        self.days_threshold = days_threshold
+        
+    def _getStockDateList(self):
+        """Get listing dates for all stocks"""
+        sh_stock = ak.stock_info_sh_name_code("主板A股")[["证券代码", "上市日期"]].rename(columns={"证券代码": "code", "上市日期": "list_date"})
+        sz_stock = ak.stock_info_sz_name_code("A股列表")[["A股代码", "A股上市日期"]].rename(columns={"A股代码": "code", "A股上市日期": "list_date"})
+        bj_stock = ak.stock_info_bj_name_code()[["证券代码", "上市日期"]].rename(columns={"证券代码": "code", "上市日期": "list_date"})
+        stock = pd.concat([sh_stock, sz_stock, bj_stock], axis=0)
+        return stock.set_index('code')['list_date'].to_dict()
+        
+    def _getFilterSeries(self, instruments, fstart, fend):
+        all_filter_series = {}
+        filter_calendar = Cal.calendar(start_time=fstart, end_time=fend, freq=self.filter_freq)
+        stock_list_date = self._getStockDateList()
+        
+        for inst, timestamp in instruments.items():
+            code = inst[2:]
+            try:
+                list_date = pd.Timestamp(stock_list_date[code])
+                # Calculate days since listing
+                days_since_list = (fend - list_date).days
+                if days_since_list <= self.days_threshold:
+                    _filter_series = pd.Series({timestamp: False for timestamp in filter_calendar})
+                else:
+                    _filter_series = pd.Series({timestamp: True for timestamp in filter_calendar})
+            except KeyError:
+                # Handle case when stock code is not found in listing dates
+                _filter_series = pd.Series({timestamp: self.keep for timestamp in filter_calendar})
+                
+            all_filter_series[inst] = _filter_series
+        return all_filter_series
+
+    @staticmethod
+    def from_config(config):
+        return NewStockAKFilter(
+            days_threshold=config.get("days_threshold", 30),
+            fstart_time=config.get("filter_start_time"),
+            fend_time=config.get("filter_end_time"),
+            keep=config.get("keep", False)
+        )
+
+    def to_config(self):
+        return {
+            "filter_type": "NewStockAKFilter",
+            "days_threshold": self.days_threshold,
+            "filter_start_time": str(self.filter_start_time) if self.filter_start_time else self.filter_start_time,
+            "filter_end_time": str(self.filter_end_time) if self.filter_end_time else self.filter_end_time,
+            "keep": self.keep
+        }
+    
+# FixMe: Too many requests to akshare API, need to be optimized
+class PEFilter(SeriesDFilter):
+    """PE ratio dynamic filter
+    
+    Filter stocks based on PE ratio indicator
+    """
+    
+    def __init__(self, pe_min=None, pe_max=None, fstart_time=None, fend_time=None, keep=False):
+        """Initialize PE ratio filter
+        
+        Parameters
+        ----------
+        pe_min : float, optional
+            Minimum allowed PE ratio
+        pe_max : float, optional
+            Maximum allowed PE ratio
+        fstart_time : str, optional
+            Filter start time
+        fend_time : str, optional
+            Filter end time
+        keep : bool, optional
+            Whether to keep stocks with missing data
+        """
+        super(PEFilter, self).__init__(fstart_time, fend_time, keep)
+        self.pe_min = pe_min
+        self.pe_max = pe_max
+        
+    def _getFilterSeries(self, instruments, fstart, fend):
+        """Get filter series based on PE ratio criteria
+        
+        Parameters
+        ----------
+        instruments : dict
+            Dictionary of instruments to filter
+        fstart : pd.Timestamp
+            Start time of filter period
+        fend : pd.Timestamp
+            End time of filter period
+            
+        Returns
+        -------
+        dict
+            Dictionary of {instrument: filter_series}
+        """
+        from tqdm import tqdm
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        all_filter_series = {}
+        filter_calendar = Cal.calendar(start_time=fstart, end_time=fend, freq=self.filter_freq)
+        
+        def fetch_data(code):
+            try:
+                df = ak.stock_a_indicator_lg(symbol=code)
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
+                df = df.set_index('trade_date')
+                return code, df[(df.index >= fstart) & (df.index <= fend)]
+            except Exception:
+                return code, None
+        
+        with tqdm(total=len(instruments), desc="Processing PE filter") as pbar:
+            with ThreadPoolExecutor(max_workers=200) as executor:
+                future_to_code = {
+                    executor.submit(fetch_data, inst[2:]): inst 
+                    for inst in instruments.keys()
+                }
+                
+                for future in as_completed(future_to_code):
+                    inst = future_to_code[future]
+                    code, df = future.result()
+                    
+                    try:
+                        filter_series = pd.Series(True, index=filter_calendar)
+                        if self.pe_min is not None:
+                            filter_series &= df['pe_ttm'] >= self.pe_min
+                        if self.pe_max is not None:
+                            filter_series &= df['pe_ttm'] <= self.pe_max
+                    except Exception:
+                        filter_series = pd.Series(self.keep, index=filter_calendar)
+                        
+                    all_filter_series[inst] = filter_series
+                    pbar.update(1)  # 更新进度条
+                    
+        return all_filter_series
+# FixMe: Too many requests to akshare API, need to be optimized
+class PBFilter(SeriesDFilter):
+    """PB ratio dynamic filter
+    
+    Filter stocks based on PB ratio indicator
+    """
+    
+    def __init__(self, pb_min=None, pb_max=None, fstart_time=None, fend_time=None, keep=False):
+        """Initialize PB ratio filter
+        
+        Parameters
+        ----------
+        pb_min : float, optional
+            Minimum allowed PB ratio
+        pb_max : float, optional
+            Maximum allowed PB ratio
+        fstart_time : str, optional
+            Filter start time
+        fend_time : str, optional
+            Filter end time
+        keep : bool, optional
+            Whether to keep stocks with missing data
+        """
+        super(PBFilter, self).__init__(fstart_time, fend_time, keep)
+        self.pb_min = pb_min
+        self.pb_max = pb_max
+        
+    def _getFilterSeries(self, instruments, fstart, fend):
+        """Get filter series based on PB ratio criteria
+        
+        Parameters
+        ----------
+        instruments : dict
+            Dictionary of instruments to filter
+        fstart : pd.Timestamp
+            Start time of filter period
+        fend : pd.Timestamp
+            End time of filter period
+            
+        Returns
+        -------
+        dict
+            Dictionary of {instrument: filter_series}
+        """
+        from tqdm import tqdm
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        all_filter_series = {}
+        filter_calendar = Cal.calendar(start_time=fstart, end_time=fend, freq=self.filter_freq)
+        
+        def fetch_data(code):
+            try:
+                df = ak.stock_a_indicator_lg(symbol=code)
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
+                df = df.set_index('trade_date')
+                return code, df[(df.index >= fstart) & (df.index <= fend)]
+            except Exception:
+                return code, None
+        
+        # 添加进度条
+        with tqdm(total=len(instruments), desc="Processing PB filter") as pbar:
+            with ThreadPoolExecutor(max_workers=200) as executor:
+                future_to_code = {
+                    executor.submit(fetch_data, inst[2:]): inst 
+                    for inst in instruments.keys()
+                }
+                
+                for future in as_completed(future_to_code):
+                    inst = future_to_code[future]
+                    code, df = future.result()
+                    
+                    try:
+                        filter_series = pd.Series(True, index=filter_calendar)
+                        if self.pb_min is not None:
+                            filter_series &= df['pb'] >= self.pb_min
+                        if self.pb_max is not None:
+                            filter_series &= df['pb'] <= self.pb_max
+                    except Exception:
+                        filter_series = pd.Series(self.keep, index=filter_calendar)
+                        
+                    all_filter_series[inst] = filter_series
+                    pbar.update(1)  # 更新进度条
+                    
+        return all_filter_series
+
+    @staticmethod
+    def from_config(config):
+        """Create filter instance from config dictionary
+        
+        Parameters
+        ----------
+        config : dict
+            Configuration dictionary
+            
+        Returns
+        -------
+        PBFilter
+            PB filter instance
+        """
+        return PBFilter(
+            pb_min=config.get("pb_min"),
+            pb_max=config.get("pb_max"),
+            fstart_time=config.get("filter_start_time"),
+            fend_time=config.get("filter_end_time"),
+            keep=config.get("keep", False)
+        )
+
+    def to_config(self):
+        """Convert filter instance to config dictionary
+        
+        Returns
+        -------
+        dict
+            Configuration dictionary
+        """
+        return {
+            "filter_type": "PBFilter",
+            "pb_min": self.pb_min,
+            "pb_max": self.pb_max,
             "filter_start_time": str(self.filter_start_time) if self.filter_start_time else self.filter_start_time,
             "filter_end_time": str(self.filter_end_time) if self.filter_end_time else self.filter_end_time,
             "keep": self.keep,
