@@ -7,6 +7,8 @@ import warnings
 from typing import Callable, Union, Tuple, List, Iterator, Optional
 
 import pandas as pd
+import numpy as np
+from pandas.api.types import is_numeric_dtype, is_integer_dtype, is_float_dtype
 
 from qlib.typehint import Literal
 from ...log import get_module_logger, TimeInspector
@@ -111,6 +113,7 @@ class DataHandler(DataHandlerABC):
         data_loader: Union[dict, str, DataLoader] = None,
         init_data=True,
         fetch_orig=True,
+        compress=False,
     ):
         """
         Parameters
@@ -146,6 +149,7 @@ class DataHandler(DataHandlerABC):
         self.end_time = end_time
 
         self.fetch_orig = fetch_orig
+        self.compress = compress
         if init_data:
             with TimeInspector.logt("Init data"):
                 self.setup_data()
@@ -171,6 +175,48 @@ class DataHandler(DataHandlerABC):
 
         super().config(**kwargs)
 
+
+    def _reduce_mem_usage(self, df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
+        """ 
+        Reduce memory usage by downcasting numeric types and converting object types to categories.
+        """
+        start_mem = df.memory_usage(deep=True).sum() / 1024**2
+
+        for col in df.columns:
+            col_type = df[col].dtype
+
+            if is_numeric_dtype(col_type):
+                col_min = df[col].min()
+                col_max = df[col].max()
+
+                if is_integer_dtype(col_type) or (is_float_dtype(col_type) and (df[col].dropna() % 1 == 0).all()):
+                    if col_min >= np.iinfo(np.int8).min and col_max <= np.iinfo(np.int8).max:
+                        df[col] = df[col].astype('Int8')
+                    elif col_min >= np.iinfo(np.int16).min and col_max <= np.iinfo(np.int16).max:
+                        df[col] = df[col].astype('Int16')
+                    elif col_min >= np.iinfo(np.int32).min and col_max <= np.iinfo(np.int32).max:
+                        df[col] = df[col].astype('Int32')
+                    else:
+                        df[col] = df[col].astype('Int64')
+                else:
+                    if col_min >= np.finfo(np.float16).min and col_max <= np.finfo(np.float16).max:
+                        df[col] = df[col].astype(np.float16)
+                    elif col_min >= np.finfo(np.float32).min and col_max <= np.finfo(np.float32).max:
+                        df[col] = df[col].astype(np.float32)
+                    else:
+                        df[col] = df[col].astype(np.float64)
+            else:
+                if col_type == object:
+                    df[col] = df[col].astype('category')
+
+        end_mem = df.memory_usage(deep=True).sum() / 1024**2
+        if verbose:
+            print(f"Memory usage before: {start_mem:.2f} MB")
+            print(f"Memory usage after: {end_mem:.2f} MB")
+            print(f"Reduced by: {(100 * (start_mem - end_mem) / start_mem):.1f}%")
+
+        return df
+
     def setup_data(self, enable_cache: bool = False):
         """
         Set Up the data in case of running initialization for multiple time
@@ -193,6 +239,8 @@ class DataHandler(DataHandlerABC):
         with TimeInspector.logt("Loading data"):
             # make sure the fetch method is based on an index-sorted pd.DataFrame
             self._data = lazy_sort_index(self.data_loader.load(self.instruments, self.start_time, self.end_time))
+            if self.compress:
+                self._data = self._reduce_mem_usage(self._data)
         # TODO: cache
 
     def fetch(
