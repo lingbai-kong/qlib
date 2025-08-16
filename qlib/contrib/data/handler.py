@@ -60,12 +60,8 @@ class Alpha360(DataHandlerLP):
         inst_processors=None,
         **kwargs,
     ):
-        infer_processors = check_transform_proc(
-            infer_processors, fit_start_time, fit_end_time
-        )
-        learn_processors = check_transform_proc(
-            learn_processors, fit_start_time, fit_end_time
-        )
+        infer_processors = check_transform_proc(infer_processors, fit_start_time, fit_end_time)
+        learn_processors = check_transform_proc(learn_processors, fit_start_time, fit_end_time)
 
         data_loader = {
             "class": "QlibDataLoader",
@@ -115,12 +111,8 @@ class Alpha158(DataHandlerLP):
         inst_processors=None,
         **kwargs,
     ):
-        infer_processors = check_transform_proc(
-            infer_processors, fit_start_time, fit_end_time
-        )
-        learn_processors = check_transform_proc(
-            learn_processors, fit_start_time, fit_end_time
-        )
+        infer_processors = check_transform_proc(infer_processors, fit_start_time, fit_end_time)
+        learn_processors = check_transform_proc(learn_processors, fit_start_time, fit_end_time)
 
         data_loader = {
             "class": "QlibDataLoader",
