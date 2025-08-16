@@ -60,8 +60,12 @@ class Alpha360(DataHandlerLP):
         inst_processors=None,
         **kwargs,
     ):
-        infer_processors = check_transform_proc(infer_processors, fit_start_time, fit_end_time)
-        learn_processors = check_transform_proc(learn_processors, fit_start_time, fit_end_time)
+        infer_processors = check_transform_proc(
+            infer_processors, fit_start_time, fit_end_time
+        )
+        learn_processors = check_transform_proc(
+            learn_processors, fit_start_time, fit_end_time
+        )
 
         data_loader = {
             "class": "QlibDataLoader",
@@ -111,8 +115,12 @@ class Alpha158(DataHandlerLP):
         inst_processors=None,
         **kwargs,
     ):
-        infer_processors = check_transform_proc(infer_processors, fit_start_time, fit_end_time)
-        learn_processors = check_transform_proc(learn_processors, fit_start_time, fit_end_time)
+        infer_processors = check_transform_proc(
+            infer_processors, fit_start_time, fit_end_time
+        )
+        learn_processors = check_transform_proc(
+            learn_processors, fit_start_time, fit_end_time
+        )
 
         data_loader = {
             "class": "QlibDataLoader",
@@ -151,6 +159,32 @@ class Alpha158(DataHandlerLP):
 
     def get_label_config(self):
         return ["Ref($close, -2)/Ref($close, -1) - 1"], ["LABEL0"]
+
+
+class Alpha158ST(Alpha158):
+    def get_label_config(self):
+        return ["Ref(Sign(Sum($is_st, 30)), -30)"], ["LABEL_ST"]
+
+
+class Alpha158RewardShaping(Alpha158):
+    def get_feature_config(self, feature_config={}):
+        conf = {
+            "kbar": {},
+            "price": {
+                "windows": [0],
+                "feature": ["OPEN", "HIGH", "LOW", "VWAP"],
+            },
+            "rolling": {},
+        }
+        conf.update(feature_config)
+        fields, names = Alpha158DL.get_feature_config(conf)
+        fields.append("$is_st")
+        names.append("ST")
+        return fields, names
+
+    def get_label_config(self):
+        original_label = super().get_label_config()[0]
+        return [f"If(Ref(Sign(Sum($is_st, 30)), -30),-0.1,{original_label[0]})"], ["LABEL0"]
 
 
 class Alpha158vwap(Alpha158):
