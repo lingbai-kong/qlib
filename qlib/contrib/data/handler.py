@@ -119,7 +119,7 @@ class Alpha158(DataHandlerLP):
             "kwargs": {
                 "config": {
                     "feature": self.get_feature_config(kwargs.pop("feature", {})),
-                    "label": kwargs.pop("label", self.get_label_config()),
+                    "label": kwargs.pop("label", self.get_label_config(kwargs.pop("label", {}))),
                 },
                 "filter_pipe": filter_pipe,
                 "freq": freq,
@@ -149,12 +149,12 @@ class Alpha158(DataHandlerLP):
         conf.update(feature_config)
         return Alpha158DL.get_feature_config(conf)
 
-    def get_label_config(self):
+    def get_label_config(self, label_config={}):
         return ["Ref($close, -2)/Ref($close, -1) - 1"], ["LABEL0"]
 
 
 class Alpha158ST(Alpha158):
-    def get_label_config(self):
+    def get_label_config(self, label_config={}):
         return ["Ref(Sign(Sum($is_st, 30)), -30)"], ["LABEL_ST"]
 
 
@@ -167,16 +167,20 @@ class Alpha158RewardShaping(Alpha158):
                 "feature": ["OPEN", "HIGH", "LOW", "VWAP"],
             },
             "rolling": {},
+            "st": False
         }
         conf.update(feature_config)
         fields, names = Alpha158DL.get_feature_config(conf)
-        fields.append("$is_st")
-        names.append("ST")
+        if not conf.get("st", False):
+            fields.append("$is_st")
+            names.append("ST")
         return fields, names
 
-    def get_label_config(self):
+    def get_label_config(self, label_config={}):
+        st_risk_range = label_config.get("st_risk_range", 5)
+        punish_factor = label_config.get("st_punish_factor", 0.1)
         original_label = super().get_label_config()[0]
-        return [f"If(Ref(Sign(Sum($is_st, 30)), -30),-0.1,{original_label[0]})"], ["LABEL0"]
+        return [f"If(Gt(Ref(Sum($is_st,{st_risk_range}),-{st_risk_range}),0),{original_label[0]}-{punish_factor},{original_label[0]})"], ["LABEL0"]
 
 
 class Alpha158vwap(Alpha158):
