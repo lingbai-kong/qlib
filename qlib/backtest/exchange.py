@@ -176,11 +176,12 @@ class Exchange:
         self.buy_vol_limit, self.sell_vol_limit, vol_lt_fields = self._get_vol_limit(volume_threshold)
 
         necessary_fields = {self.buy_price, self.sell_price, "$close", "$change", "$factor", "$volume"}
+        enhanced_fields = {"$is_st"}
         if self.limit_type == self.LT_TP_EXP:
             assert isinstance(limit_threshold, tuple)
             for exp in limit_threshold:
                 necessary_fields.add(exp)
-        all_fields = list(necessary_fields | set(vol_lt_fields) | set(subscribe_fields))
+        all_fields = list(necessary_fields | enhanced_fields | set(vol_lt_fields) | set(subscribe_fields))
 
         self.all_fields = all_fields
 
@@ -413,6 +414,17 @@ class Exchange:
             self.check_stock_suspended(stock_id, start_time, end_time)
             or self.check_stock_limit(stock_id, start_time, end_time, direction)
         )
+    
+    def is_stock_st(
+        self,
+        stock_id: str,
+        start_time: pd.Timestamp,
+        end_time: pd.Timestamp
+    ) -> bool:
+        """
+        check if stock is st
+        """
+        return cast(bool, self.quote.get_data(stock_id, start_time, end_time, field="$is_st", method="all"))
 
     def check_order(self, order: Order) -> bool:
         # check limit and suspended

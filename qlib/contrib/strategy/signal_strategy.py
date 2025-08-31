@@ -88,6 +88,7 @@ class TopkDropoutStrategy(BaseSignalStrategy):
         hold_thresh=1,
         only_tradable=False,
         forbid_all_trade_at_limit=True,
+        never_hold_st=False,
         **kwargs,
     ):
         """
@@ -134,6 +135,7 @@ class TopkDropoutStrategy(BaseSignalStrategy):
         self.hold_thresh = hold_thresh
         self.only_tradable = only_tradable
         self.forbid_all_trade_at_limit = forbid_all_trade_at_limit
+        self.never_hold_st = never_hold_st
 
     def generate_trade_decision(self, execute_result=None):
         # get the number of trading step finished, trade_step can be [0, 1, 2, ..., trade_len - 1]
@@ -156,6 +158,9 @@ class TopkDropoutStrategy(BaseSignalStrategy):
                 for si in reversed(li) if reverse else li:
                     if self.trade_exchange.is_stock_tradable(
                         stock_id=si, start_time=trade_start_time, end_time=trade_end_time
+                    ) and (
+                        self.never_hold_st and 
+                        not self.trade_exchange.is_stock_st(stock_id=si, start_time=trade_start_time, end_time=trade_end_time)
                     ):
                         res.append(si)
                         cur_n += 1
@@ -172,6 +177,9 @@ class TopkDropoutStrategy(BaseSignalStrategy):
                     for si in li
                     if self.trade_exchange.is_stock_tradable(
                         stock_id=si, start_time=trade_start_time, end_time=trade_end_time
+                    ) and (
+                        self.never_hold_st and 
+                        not self.trade_exchange.is_stock_st(stock_id=si, start_time=trade_start_time, end_time=trade_end_time)
                     )
                 ]
 
@@ -237,7 +245,10 @@ class TopkDropoutStrategy(BaseSignalStrategy):
                 direction=None if self.forbid_all_trade_at_limit else OrderDir.SELL,
             ):
                 continue
-            if code in sell:
+            if code in sell or (
+                    self.never_hold_st and 
+                    self.trade_exchange.is_stock_st(stock_id=code, start_time=trade_start_time, end_time=trade_end_time)
+                ):
                 # check hold limit
                 time_per_step = self.trade_calendar.get_freq()
                 if current_temp.get_stock_count(code, bar=time_per_step) < self.hold_thresh:
@@ -275,6 +286,9 @@ class TopkDropoutStrategy(BaseSignalStrategy):
                 start_time=trade_start_time,
                 end_time=trade_end_time,
                 direction=None if self.forbid_all_trade_at_limit else OrderDir.BUY,
+            ) or (
+                self.never_hold_st and 
+                self.trade_exchange.is_stock_st(stock_id=code, start_time=trade_start_time, end_time=trade_end_time)
             ):
                 continue
             # buy order
