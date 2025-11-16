@@ -150,7 +150,11 @@ class Alpha158(DataHandlerLP):
         return Alpha158DL.get_feature_config(conf)
 
     def get_label_config(self, label_config={}):
-        return ["Ref($close, -2)/Ref($close, -1) - 1"], ["LABEL0"]
+        if label_config.get("custom_label", None) is not None:
+            return [label_config.get("custom_label")], ["LABEL0"]
+        future_window = label_config.get("future_window", 1)
+        assert future_window >= 1, "future_window should be at least 1"
+        return [f"Ref($close, -{1 + future_window})/Ref($close, -1) - 1"], ["LABEL0"]
 
 
 class Alpha158ST(Alpha158):
@@ -171,17 +175,20 @@ class Alpha158RewardShaping(Alpha158):
         }
         conf.update(feature_config)
         fields, names = Alpha158DL.get_feature_config(conf)
-        if not conf.get("st", False):
+        if conf.get("st", False):
             fields.append("$is_st")
             names.append("ST")
         return fields, names
 
     def get_label_config(self, label_config={}):
+        reward_shaping = label_config.get("reward_shaping", False)
         st_risk_range = label_config.get("st_risk_range", 5)
         punish_factor = label_config.get("st_punish_factor", 0.1)
-        original_label = super().get_label_config()[0]
-        return [f"If(Gt(Ref(Sum($is_st,{st_risk_range}),-{st_risk_range}),0),{original_label[0]}-{punish_factor},{original_label[0]})"], ["LABEL0"]
-
+        original_label = super().get_label_config(label_config)[0]
+        if reward_shaping:
+            return [f"If(Gt(Ref(Sum($is_st,{st_risk_range}),-{st_risk_range}),0),{original_label[0]}-{punish_factor},{original_label[0]})"], ["LABEL0"]
+        else:
+            return original_label, ["LABEL0"]
 
 class Alpha158vwap(Alpha158):
     def get_label_config(self):
