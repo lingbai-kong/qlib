@@ -109,7 +109,7 @@ def handler_mod(task: dict, rolling_gen):
         interval = rolling_gen.ta.cal_interval(
             task["dataset"]["kwargs"]["handler"]["kwargs"]["end_time"],
             task["dataset"]["kwargs"]["segments"][rolling_gen.test_key][1],
-        )
+        ) if task["dataset"]["kwargs"]["segments"][rolling_gen.test_key][1] is not None else -1
         # if end_time < the end of test_segments, then change end_time to allow load more data
         if interval < 0:
             task["dataset"]["kwargs"]["handler"]["kwargs"]["end_time"] = copy.deepcopy(
