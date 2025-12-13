@@ -68,7 +68,7 @@ class Alpha360(DataHandlerLP):
             "kwargs": {
                 "config": {
                     "feature": Alpha360DL.get_feature_config(),
-                    "label": kwargs.pop("label", self.get_label_config()),
+                    "label": kwargs.pop("label", self.get_label_config(kwargs.pop("label_config", {}))),
                 },
                 "filter_pipe": filter_pipe,
                 "freq": freq,
@@ -86,8 +86,10 @@ class Alpha360(DataHandlerLP):
             **kwargs,
         )
 
-    def get_label_config(self):
-        return ["Ref($close, -2)/Ref($close, -1) - 1"], ["LABEL0"]
+    def get_label_config(self, label_config={}):
+        future_window = label_config.get("future_window", 1)
+        assert future_window >= 1, "future_window should be at least 1"
+        return [f"Ref($close, -{1 + future_window})/Ref($close, -1) - 1"], ["LABEL0"]
 
 
 class Alpha360vwap(Alpha360):
@@ -118,8 +120,8 @@ class Alpha158(DataHandlerLP):
             "class": "QlibDataLoader",
             "kwargs": {
                 "config": {
-                    "feature": self.get_feature_config(kwargs.pop("feature", {})),
-                    "label": kwargs.pop("label", self.get_label_config(kwargs.pop("label", {}))),
+                    "feature": self.get_feature_config(kwargs.pop("feature_config", {})),
+                    "label": kwargs.pop("label", self.get_label_config(kwargs.pop("label_config", {}))),
                 },
                 "filter_pipe": filter_pipe,
                 "freq": freq,
@@ -150,8 +152,6 @@ class Alpha158(DataHandlerLP):
         return Alpha158DL.get_feature_config(conf)
 
     def get_label_config(self, label_config={}):
-        if label_config.get("custom_label", None) is not None:
-            return [label_config.get("custom_label")], ["LABEL0"]
         future_window = label_config.get("future_window", 1)
         assert future_window >= 1, "future_window should be at least 1"
         return [f"Ref($close, -{1 + future_window})/Ref($close, -1) - 1"], ["LABEL0"]
