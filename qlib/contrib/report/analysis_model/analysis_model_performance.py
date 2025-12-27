@@ -172,10 +172,21 @@ def _pred_ic(
 
     ic_bar_figure = ic_figure(ic_df, kwargs.get("show_nature_day", False))
 
+    # Calculate symmetric range for equal color gradient
+    ic_min = _monthly_ic.min()
+    ic_max = _monthly_ic.max()
+    abs_max = max(abs(ic_min), abs(ic_max))
+    
+    # Use symmetric color mapping with default colorscale
     ic_heatmap_figure = HeatmapGraph(
         _monthly_ic.unstack(),
         layout=dict(title="Monthly IC", xaxis=dict(dtick=1), yaxis=dict(tickformat="04d", dtick=1)),
-        graph_kwargs=dict(xtype="array", ytype="array"),
+        graph_kwargs=dict(
+            xtype="array", 
+            ytype="array",
+            zmin=-abs_max,  # Set symmetric minimum
+            zmax=abs_max,   # Set symmetric maximum
+        ),
     ).figure
 
     dist = stats.norm
